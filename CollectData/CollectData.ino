@@ -4,30 +4,14 @@
   Please show us know if there is a better way to measure the best way for smoothing.
  */
 
-//sd card
+// sd card
 #include <SD.h>
 #include <SPI.h>
 File myFile;
 const int chipSelect = 4;
+int counter = 0;
 
 
-// mean and std 
-float mean_sitting = 38.4684210526;
-float mean_walking = 208.910131579;
-float mean_running = 710.752207792;
-float std_sitting = 18.0655037057;
-float std_walking = 58.2738178943;
-float std_running = 202.214244784;
-
-// button
-const int buttonPin = 15;  
-const int ledPin =  14;      
-int ledState = HIGH;         
-int buttonState;             
-int lastButtonState = LOW;   
-long lastDebounceTime = 0;  
-long debounceDelay = 50;    
-boolean changeit = false;
 
 // gyro
 #include "SPI.h"
@@ -39,22 +23,22 @@ boolean changeit = false;
 #define TFT_DC 9
 #define TFT_CS 10
 
+#define sizeOfSmoothing 32
+
 // for smoothing
-# define bufferSize 70
-
-float prevSum[bufferSize];
-float runningSum = 0;
-float prevx = 0;
-float prevy = 0;
-float prevz = 0;
-int counterS = 0;
-float cal = 0;
-float calOld = 0;
-
-// graphing
-int originLine = 200;
-int width = 30;
-int spacing = 5;
+float axArray[sizeOfSmoothing];
+float ayArray[sizeOfSmoothing];
+float azArray[sizeOfSmoothing];
+int acount = 0;
+float axAvg = 0;
+float ayAvg = 0;
+float azAvg = 0;
+float gxArray[sizeOfSmoothing];
+float gyArray[sizeOfSmoothing];
+float gzArray[sizeOfSmoothing];
+float gxAvg = 0;
+float gyAvg = 0;
+float gzAvg = 0;
 
 // Use hardware SPI (on Uno, #13, #12, #11) and the above for CS/DC
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC);
@@ -220,13 +204,31 @@ int16_t tempCount;               // Stores the internal chip temperature sensor 
 float temperature;               // Scaled temperature in degrees Celsius
 float SelfTest[6];               // Gyro and accelerometer self-test sensor output
 uint32_t count = 0;
-
+int originLine = 200;
+int width = 30;
+int spacing = 5;
 void setup()
 {
+  // sd card
+  Serial.begin(9600);
+   while (!Serial) {
+    ; // wait for serial port to connect. Needed for Leonardo only
+  }
+  
+  Serial.print("Initializing SD card..."); 
+  pinMode(10, OUTPUT);
+  if (!SD.begin(chipSelect)) {
+    Serial.println("initialization failed!");
+    return;
+  }
+  Serial.println("initialization done.");
+
+  myFile = SD.open("test.txt", FILE_WRITE);
+    
+  
   Wire.begin();
   Serial.begin(38400);
-  pinMode(14, OUTPUT);
-  digitalWrite(14, LOW);
+  
   // Set up the interrupt pin, its set as active high, push-pull
   pinMode(intPin, INPUT);
   digitalWrite(intPin, LOW);
@@ -234,11 +236,6 @@ void setup()
   tft.begin();         // Initialize the display
  // tft.setContrast(58); // Set the contrast
   tft.setRotation(2);  //  0 or 2) width = width, 1 or 3) width = height, swapped etc.
-
-
-  // button
-  pinMode(buttonPin, INPUT);
-  pinMode(ledPin, OUTPUT);
 
   
 // Start device display with ID of sensor
@@ -269,36 +266,37 @@ void setup()
   delay(1000); 
 
   if (c == 0x68) // WHO_AM_I should always be 0x68
-  {    
+  {  
+//    Serial.println("MPU6050 is online...");
+//    
     MPU6050SelfTest(SelfTest); // Start by performing self test and reporting values
+//    Serial.print("x-axis self test: acceleration trim within : "); Serial.print(SelfTest[0],1); Serial.println("% of factory value");
+//    Serial.print("y-axis self test: acceleration trim within : "); Serial.print(SelfTest[1],1); Serial.println("% of factory value");
+//    Serial.print("z-axis self test: acceleration trim within : "); Serial.print(SelfTest[2],1); Serial.println("% of factory value");
+//    Serial.print("x-axis self test: gyration trim within : "); Serial.print(SelfTest[3],1); Serial.println("% of factory value");
+//    Serial.print("y-axis self test: gyration trim within : "); Serial.print(SelfTest[4],1); Serial.println("% of factory value");
+//    Serial.print("z-axis self test: gyration trim within : "); Serial.print(SelfTest[5],1); Serial.println("% of factory value");
+
     if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) {
+//    tft.clearDisplay();
     tft.setCursor(0, 120); tft.print("Pass Selftest!");  
+//     
     delay(1000);
   
     calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers  
     initMPU6050(); Serial.println("MPU6050 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
-    tft.fillScreen(ILI9341_WHITE);
+//  tft.fillScreen(ILI9341_WHITE);
     tft.setTextSize(2);
    }
    else
    {
+//    Serial.print("Could not connect to MPU6050: 0x");
+//    Serial.println(c, HEX);
     while(1) ; // Loop forever if communication doesn't happen
    }
 
   }
-      tft.setTextColor(ILI9341_BLACK);
-      tft.setCursor(0,250); 
-      tft.print("Calories Burned: ");
-      
-       Serial.print("Initializing SD card..."); 
-        pinMode(10, OUTPUT);
-        if (!SD.begin(chipSelect)) {
-          Serial.println("initialization failed!");
-          return;
-        }
-        Serial.println("initialization done.");
-      
-        myFile = SD.open("testing.txt", FILE_WRITE);
+ 
 }
 
 void loop()
@@ -314,7 +312,10 @@ void loop()
     ay = (float)accelCount[1]*aRes - accelBias[1];   
     az = (float)accelCount[2]*aRes - accelBias[2];  
      
-
+    axArray[acount] = ax;
+    ayArray[acount] = ay;
+    azArray[acount] = az;
+    acount++;
     readGyroData(gyroCount);  // Read the x/y/z adc values
     getGres();
  
@@ -327,91 +328,56 @@ void loop()
     temperature = ((float) tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
    }  
    
-   //button
-   int reading = digitalRead(buttonPin);
-   if (reading == HIGH) {
-       lastDebounceTime = millis();
-       changeit = true;
-   }
-   
-   if ((millis() - lastDebounceTime) > debounceDelay && changeit == true) {
-       if (buttonState == HIGH) {
-           buttonState = LOW;
-       } else {
-           buttonState = HIGH;
-       }
-       changeit = false;
-       digitalWrite(ledPin, buttonState);
-   }
-   
-   float sumNum = abs(prevx - gx / 5) + abs(prevy - gy / 5) + abs(prevz - gz / 5);
-
-
-   if (counterS < 35) {
-     prevSum[counterS] = sumNum;
-     runningSum += sumNum;
-   } else {
-     runningSum = runningSum - prevSum[counterS % 35] + sumNum;
-     prevSum[counterS % 35] = sumNum;
-   }
-  
-   if (counterS == 35 * 100) {
-     counterS == 35;
-   }
-   prevx = gx / 5;
-   prevy = gy / 5;
-   prevz = gz / 5;
-   counterS++;
-   
-   float posteriorSit = modeGivenFeature(mean_sitting, std_sitting, runningSum);
-   float posteriorWalk = modeGivenFeature(mean_walking, std_walking, runningSum);
-   float posteriorRun = modeGivenFeature(mean_running, std_running, runningSum);
-
-   if (counterS % 35 == 0) {
-     calOld = cal;
-     if (posteriorSit >= posteriorWalk && posteriorSit >= posteriorRun) {
-       tft.fillRect(0,0, 300, 200, ILI9341_RED);
-       // 60 min 50 call // 0.00463 cal
-       cal += 0.00463;
-       
-        if(myFile) {
-          myFile.print("stand");
-          myFile.print(", ");
-          myFile.println(millis());
-        }      
-     } else if (posteriorWalk > posteriorSit && posteriorWalk >= posteriorRun) {
-       tft.fillRect(0,0, 300, 200, ILI9341_YELLOW);
-       // 45 min 250 cal // 0.031
-       cal += 0.031;
-        if(myFile) {
-          myFile.print("walk");
-          myFile.print(", ");
-          myFile.println(millis());
-        }  
-     } else {
-       tft.fillRect(0,0, 300, 200, ILI9341_GREEN);
-       // 45 min 600 cal // 0.074 cal   
-       cal += 0.074;
-        if(myFile) {
-          myFile.print("run");
-          myFile.print(", ");
-          myFile.println(millis());
-        }  
+   if(acount % sizeOfSmoothing ==0) {
+     tft.fillScreen(ILI9341_WHITE);
+     tft.fillRect(0, originLine, 300, 2, ILI9341_BLACK);
+     acount = 0;
+     axAvg = 0;
+     ayAvg = 0;
+     azAvg = 0;
+     for(int i = 0; i < sizeOfSmoothing; i++) {
+       axAvg += axArray[i];
+       ayAvg += ayArray[i];
+       azAvg += azArray[i];
      }
-      tft.setTextColor(ILI9341_WHITE); 
-      tft.setCursor(100,300); 
-      tft.print(calOld);
-      tft.setTextColor(ILI9341_BLACK);
-      tft.setCursor(100,300); 
-      tft.print(cal);
-   }
-   
-//   if (counterS == 35 || counterS == 700) {
-     myFile.flush();
-//   }
-   
-  delay(10);
+     axAvg /= sizeOfSmoothing;
+     ayAvg /= sizeOfSmoothing;
+     azAvg /= sizeOfSmoothing;
+     
+     
+     gxAvg = 0;
+     gyAvg = 0;
+     gzAvg = 0;
+     for(int i = 0; i < sizeOfSmoothing; i++) {
+       gxAvg += gxArray[i];
+       gyAvg += gyArray[i];
+       gzAvg += gzArray[i];
+     }
+     gxAvg /= sizeOfSmoothing;
+     gyAvg /= sizeOfSmoothing;
+     gzAvg /= sizeOfSmoothing;
+     
   
+    drawBar(width*3 + spacing*3 + 30, gx/5, ILI9341_RED);
+    drawBar(width*4 + spacing*4 + 30, gy/5, ILI9341_YELLOW);
+    drawBar(width*5 + spacing*5 + 30, gz/5, ILI9341_BLUE);
+   }
+  if(myFile) {
+    myFile.print(gx/5);
+    myFile.print(", ");
+    myFile.print(gy/5);
+    myFile.print(", ");
+    myFile.print(gz/5);
+    myFile.print(", ");
+    myFile.println(millis());
+    //myFile.close();
+    counter++;
+  }
+  Serial.println(counter);
+  if (counter > 6000) {
+    myFile.close();
+  }
+  delay(10);
 }
 
 void drawBar(int left, int top, int color) {
@@ -422,9 +388,6 @@ void drawBar(int left, int top, int color) {
   }
 }
 
-float modeGivenFeature(float mean, float std, float num) {
-  return (1.0 / pow((2.0 * PI * pow(std,2)), 0.5)) * exp(-pow((num - mean), 2) / (2.0 * pow(std, 2)));
-}
 //===================================================================================================================
 //====== Set of useful function to access acceleration, gyroscope, and temperature data
 //===================================================================================================================
