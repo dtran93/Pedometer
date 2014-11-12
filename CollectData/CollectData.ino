@@ -1,7 +1,7 @@
 /* 
-  This is our code for Part2, smoothing the data. We used an array of 32 to store the values for averaging.
-  We used 32 after much experimentation of various other powers of 2 (to ensure that shifts can be exploited)
-  Please show us know if there is a better way to measure the best way for smoothing.
+  David Tran (1168345) 
+  CSE466 Midterm (lab 6) 
+  Collects Data for Classification of (standing, walking, running)
  */
 
 // sd card
@@ -10,8 +10,6 @@
 File myFile;
 const int chipSelect = 4;
 int counter = 0;
-
-
 
 // gyro
 #include "SPI.h"
@@ -224,7 +222,7 @@ void setup()
   Serial.println("initialization done.");
 
   myFile = SD.open("test.txt", FILE_WRITE);
-    
+  // end SD car part  
   
   Wire.begin();
   Serial.begin(38400);
@@ -362,6 +360,8 @@ void loop()
     drawBar(width*4 + spacing*4 + 30, gy/5, ILI9341_YELLOW);
     drawBar(width*5 + spacing*5 + 30, gz/5, ILI9341_BLUE);
    }
+
+  // grabing data and writing to SD card
   if(myFile) {
     myFile.print(gx/5);
     myFile.print(", ");

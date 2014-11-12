@@ -1,8 +1,11 @@
 /* 
-  This is our code for Part2, smoothing the data. We used an array of 32 to store the values for averaging.
-  We used 32 after much experimentation of various other powers of 2 (to ensure that shifts can be exploited)
-  Please show us know if there is a better way to measure the best way for smoothing.
+  David Tran (1168345) 
+  CSE466 Midterm (lab 6) 
+  Activity Logger
+  logs activity data into SD card,
+  uses precalculated data to classify the activity
  */
+
 
 //sd card
 #include <SD.h>
@@ -289,7 +292,8 @@ void setup()
       tft.setTextColor(ILI9341_BLACK);
       tft.setCursor(0,250); 
       tft.print("Calories Burned: ");
-      
+  
+  // SD card setup
        Serial.print("Initializing SD card..."); 
         pinMode(10, OUTPUT);
         if (!SD.begin(chipSelect)) {
@@ -327,13 +331,12 @@ void loop()
     temperature = ((float) tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
    }  
    
-   //button
+   //button debouncing
    int reading = digitalRead(buttonPin);
    if (reading == HIGH) {
        lastDebounceTime = millis();
        changeit = true;
    }
-   
    if ((millis() - lastDebounceTime) > debounceDelay && changeit == true) {
        if (buttonState == HIGH) {
            buttonState = LOW;
@@ -344,9 +347,10 @@ void loop()
        digitalWrite(ledPin, buttonState);
    }
    
+   // calculate feature for comparasion
    float sumNum = abs(prevx - gx / 5) + abs(prevy - gy / 5) + abs(prevz - gz / 5);
 
-
+   // running average
    if (counterS < 35) {
      prevSum[counterS] = sumNum;
      runningSum += sumNum;
@@ -363,10 +367,12 @@ void loop()
    prevz = gz / 5;
    counterS++;
    
+   // calculate posteriors
    float posteriorSit = modeGivenFeature(mean_sitting, std_sitting, runningSum);
    float posteriorWalk = modeGivenFeature(mean_walking, std_walking, runningSum);
    float posteriorRun = modeGivenFeature(mean_running, std_running, runningSum);
 
+   // write out to SD card and LCD
    if (counterS % 35 == 0) {
      calOld = cal;
      if (posteriorSit >= posteriorWalk && posteriorSit >= posteriorRun) {
@@ -406,10 +412,8 @@ void loop()
       tft.print(cal);
    }
    
-//   if (counterS == 35 || counterS == 700) {
      myFile.flush();
-//   }
-   
+
   delay(10);
   
 }
@@ -422,6 +426,7 @@ void drawBar(int left, int top, int color) {
   }
 }
 
+// calculates posteriors
 float modeGivenFeature(float mean, float std, float num) {
   return (1.0 / pow((2.0 * PI * pow(std,2)), 0.5)) * exp(-pow((num - mean), 2) / (2.0 * pow(std, 2)));
 }
